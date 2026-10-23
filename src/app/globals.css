@@ -1,26 +1,99 @@
 @import "tailwindcss";
 
+/*
+ * DriveEasy design tokens. Tailwind v4 reads these from @theme, so
+ * `bg-ink-900`, `text-gold-600`, `rounded-card` etc. are generated utilities.
+ * Light theme only; contrast pairs were picked to pass WCAG AA:
+ *   ink-900 on white, white on ink-900, ink-900 on gold-400, gold-700 on white.
+ */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif;
+  --font-display: "Segoe UI Variable Display", "SF Pro Display", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
+
+  --color-ink-950: #07111d;
+  --color-ink-900: #0c1b2c;
+  --color-ink-800: #15293f;
+  --color-ink-700: #22395a;
+  --color-ink-600: #38557b;
+  --color-ink-500: #5a7395;
+  --color-ink-400: #8798b0;
+  --color-ink-300: #b5c0cf;
+  --color-ink-200: #d7dee7;
+  --color-ink-100: #ebeff4;
+  --color-ink-50: #f5f7fa;
+
+  --color-gold-700: #8a5f12;
+  --color-gold-600: #a8761f;
+  --color-gold-500: #c8962f;
+  --color-gold-400: #dcae4f;
+  --color-gold-300: #ebc982;
+  --color-gold-100: #f8edd5;
+  --color-gold-50: #fcf7ec;
+
+  --color-sand-50: #faf8f4;
+  --color-sand-100: #f3efe7;
+
+  --color-success-700: #166534;
+  --color-success-50: #ecfdf3;
+  --color-danger-700: #b42318;
+  --color-danger-600: #d92d20;
+  --color-danger-50: #fef3f2;
+  --color-warning-700: #93370d;
+  --color-warning-50: #fffaeb;
+  --color-info-700: #1849a9;
+  --color-info-50: #eff8ff;
+
+  --radius-card: 1rem;
+  --shadow-card: 0 1px 2px rgb(12 27 44 / 0.06), 0 4px 16px rgb(12 27 44 / 0.06);
+  --shadow-lift: 0 2px 4px rgb(12 27 44 / 0.08), 0 12px 32px rgb(12 27 44 / 0.12);
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-sand-50);
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+}
+
+/* Visible keyboard focus everywhere; mouse clicks don't show the ring. */
+:focus-visible {
+  outline: 3px solid var(--color-gold-500);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer components {
+  .skeleton {
+    background: linear-gradient(90deg, var(--color-ink-100) 25%, var(--color-ink-50) 50%, var(--color-ink-100) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+    border-radius: 0.5rem;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
