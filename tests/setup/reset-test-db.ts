@@ -73,7 +73,9 @@ export async function seedTestDatabase(log: (msg: string) => void = () => {}): P
   execFileSync(process.execPath, [tsx, "scripts/seed.ts", "--test"], {
     cwd: ROOT,
     stdio: "inherit",
-    env: { ...process.env, DATABASE_URL: testDatabaseUrl() },
+    // No HTTP webhook delivery while seeding (the server may not be up); the
+    // fake-payment state file is the runner's (vitest/playwright set their own).
+    env: { ...process.env, DATABASE_URL: testDatabaseUrl(), PAYMENT_WEBHOOK_URL: "" },
   });
   log("seeded");
   return true;

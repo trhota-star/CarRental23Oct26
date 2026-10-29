@@ -1,7 +1,6 @@
 import "server-only";
 
-// Single import point for the Database Engine agent's server functions.
-// When its domain barrels land, only this file changes.
+// Single import point for the Database Engine agent's server functions (domain barrels).
 export {
   getBranch,
   getVehicle,
@@ -14,12 +13,58 @@ export {
   type Extra,
   type VehicleCategory,
   type VehicleDetails,
-} from "@/server/catalog/queries";
+} from "@/server/catalog";
+export { MAX_RENTAL_DAYS, quotePrice, type Quote } from "@/server/pricing";
 export {
+  cancelReservation,
+  checkInReservation,
+  checkOutReservation,
+  createDamageReport,
+  createReservationHold,
+  getReservationByReference,
+  getReservationForUser,
   getVehicleCalendar,
+  listDamageReports,
+  listReservationsForUser,
+  modifyReservationDates,
+  payForReservation,
+  previewCancellation,
+  previewCheckIn,
+  previewModification,
   searchAvailability,
+  updateDamageReport,
   type AvailableVehicle,
   type BusyInterval,
-} from "@/server/reservations/availability";
-export { MAX_RENTAL_DAYS, quotePrice } from "@/server/pricing/quote";
-export type { Quote } from "@/server/pricing/engine";
+  type CancellationPreview,
+  type DamageReport,
+  type PayOutcome,
+  type ReservationView,
+} from "@/server/reservations";
+export {
+  authorizeFileAccess,
+  getDriverProfile,
+  saveLicenceFile,
+  upsertDriverProfile,
+} from "@/server/customers";
+export { uploadDamagePhoto } from "@/server/customers";
+export {
+  cancelMaintenanceBlock,
+  createBranch,
+  createCategory,
+  createExtra,
+  createMaintenanceBlock,
+  createPricingRule,
+  createVehicle,
+  listAllReservations,
+  listAuditLogs,
+  listMaintenanceBlocks,
+  listPricingRules,
+  setVehicleStatus,
+  updateBranch,
+  updateCategory,
+  updateExtra,
+  updatePricingRule,
+  updateVehicle,
+  type MaintenanceBlock,
+  type PricingRule,
+} from "@/server/admin";

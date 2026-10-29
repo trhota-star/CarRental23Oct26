@@ -22,10 +22,14 @@ import { getVehicle, getVehicleCalendar, listBranches, searchAvailability, type 
 
 export const metadata: Metadata = { title: "Vehicle details" };
 
-export default function VehiclePage(props: PageProps<"/vehicles/[id]">) {
+export default async function VehiclePage(props: PageProps<"/vehicles/[id]">) {
+  const { id } = await props.params;
+  const vehicle = await loadVehicle(id);
+  if (vehicle.status === "RETIRED") notFound();
+
   return (
     <Suspense fallback={<PageSkeleton rows={1} label="Loading vehicle" />}>
-      <VehicleContent {...props} />
+      <VehicleContent {...props} vehicle={vehicle} />
     </Suspense>
   );
 }
@@ -39,12 +43,14 @@ async function loadVehicle(id: string): Promise<VehicleDetails> {
   }
 }
 
-async function VehicleContent({ params, searchParams }: PageProps<"/vehicles/[id]">) {
-  const [{ id }, sp] = await Promise.all([params, searchParams]);
+async function VehicleContent({
+  params,
+  searchParams,
+  vehicle,
+}: PageProps<"/vehicles/[id]"> & { vehicle: VehicleDetails }) {
+  const [, sp] = await Promise.all([params, searchParams]);
   await connection();
   const now = new Date();
-  const vehicle = await loadVehicle(id);
-  if (vehicle.status === "RETIRED") notFound();
   const branches = await listBranches();
   const tz = vehicle.branch.timezone;
   const today = utcToZonedParts(now, tz).date;

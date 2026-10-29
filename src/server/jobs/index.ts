@@ -1,27 +1,19 @@
 // Scheduled jobs. Locally they run via `pnpm job <name>` (SCHEDULER_PROVIDER=local);
-// in the cloud a cron service will call the same jobs.
+// in the cloud Vercel Cron calls /api/cron/<name>, which runs the same job.
 
-import { getPaymentProvider } from "../payments";
-import { releaseExpiredHolds, type HoldStore } from "./release-expired-holds";
+import { releaseExpiredReservationHolds } from "../reservations/expiry";
 
 export type ScheduledJob = {
   description: string;
   run(now: Date): Promise<string>;
 };
 
-// There is no bookings table yet, so nothing can expire. Replace with Drizzle
-// queries when the bookings schema is built.
-const bookingHolds: HoldStore = {
-  findExpired: async () => [],
-  markReleased: async () => {},
-};
-
 export const jobs: Record<string, ScheduledJob> = {
   "release-expired-holds": {
-    description: "Release booking holds (and their deposits) that have expired",
+    description: "Expire unpaid reservation holds, release their deposits and refund late payments",
     async run(now) {
-      const r = await releaseExpiredHolds({ now, holds: bookingHolds, payments: getPaymentProvider() });
-      return `released ${r.released}, failed ${r.failed}`;
+      const r = await releaseExpiredReservationHolds({ now });
+      return `expired ${r.expired}, deposits released ${r.depositsReleased}, payments refunded ${r.paymentsRefunded}, voided ${r.paymentsVoided}, orphaned ${r.orphaned}, failed ${r.failed}`;
     },
   },
 };

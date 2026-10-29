@@ -22,7 +22,8 @@ export async function registerViaUi(page: Page, user: TestUser = newUser()): Pro
   await page.getByLabel("Password", { exact: true }).fill(user.password);
   await page.getByLabel("Confirm password").fill(user.password);
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page).not.toHaveURL(/\/register/);
+  // first sign-up on a cold server (scrypt + server action) can take several seconds
+  await expect(page).not.toHaveURL(/\/register/, { timeout: 20_000 });
   return user;
 }
 
@@ -31,7 +32,7 @@ export async function loginViaUi(page: Page, user: TestUser): Promise<void> {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).not.toHaveURL(/\/login/);
+  await expect(page).not.toHaveURL(/\/login/, { timeout: 20_000 });
 }
 
 /**
@@ -47,8 +48,14 @@ export async function signUpViaApi(request: APIRequestContext, user: TestUser = 
 }
 
 export async function signInViaApi(request: APIRequestContext, user: TestUser): Promise<void> {
-  const res = await request.post("/api/auth/sign-in/email", { data: { email: user.email, password: user.password } });
-  expect(res.ok(), `sign-in ${res.status()}`).toBe(true);
+  // better-auth's CSRF check rejects cookie-bearing requests without an Origin (403),
+  // and sign-up has already set a session cookie — send one like a browser would.
+  const origin = `http://localhost:${process.env.E2E_PORT ?? 3100}`;
+  const res = await request.post("/api/auth/sign-in/email", {
+    data: { email: user.email, password: user.password },
+    headers: { Origin: origin },
+  });
+  expect(res.ok(), `sign-in ${res.status()} ${await res.text()}`).toBe(true);
 }
 
 /** Promotes a user to admin directly in driveeasy_test (users cannot set their own role). */

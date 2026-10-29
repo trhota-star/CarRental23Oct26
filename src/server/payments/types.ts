@@ -90,3 +90,6 @@ export class PaymentError extends Error {
     this.name = "PaymentError";
   }
 }
+
+/** PaymentError code from verifyWebhook for authentic events we don't act on (answer 200). */
+export const IGNORED_WEBHOOK_EVENT = "ignored_event";

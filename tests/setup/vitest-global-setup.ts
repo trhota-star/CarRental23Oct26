@@ -3,5 +3,7 @@ import { resetTestDatabase } from "./reset-test-db";
 
 export default async function setup() {
   if (process.env.QA_SKIP_DB_RESET === "1") return;
+  // Keep seed payments out of the dev fake-payment state file (matches vitest.config.mts test env).
+  process.env.FAKE_PAYMENTS_STATE_FILE = ".local/fake-payments.test.json";
   await resetTestDatabase({ seed: process.env.QA_SKIP_SEED !== "1", log: (m) => console.log(`[integration setup] ${m}`) });
 }

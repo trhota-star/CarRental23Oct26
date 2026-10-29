@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { closeDb } from "@/server/db";
 import { DomainError } from "@/server/errors";
 import { quotePrice } from "@/server/pricing/quote";
+import { createReservationHold, searchAvailability } from "@/server/reservations/service";
 import { addDays, addMinutes, futureAt, newPool } from "./helpers/db";
 import { createPricedFleet } from "./helpers/fleet";
 
@@ -72,5 +73,17 @@ describe("quotePrice", () => {
     const reverse = await quotePrice({ ...base, pickupBranchId: f.branchB.id }).catch((e) => e);
     expect(reverse instanceof DomainError || typeof reverse.totalFils === "number").toBe(true);
     expect(code(await quotePrice({ ...base, pickupAt: "2031-01-10T10:00:00" as never }).catch((e) => e))).toBe("VALIDATION");
+  });
+
+  it("malformed / offset-less dates are VALIDATION errors in search and hold too (BUG-2)", async () => {
+    const f = await createPricedFleet(pool);
+    const bad = { pickupAt: "2031-01-10T10:00:00", returnAt: "not-a-date" };
+    const search = await searchAvailability({ pickupBranchId: f.branchA.id, returnBranchId: f.branchA.id, ...bad }).catch((e) => e);
+    expect(code(search)).toBe("VALIDATION");
+    const hold = await createReservationHold(
+      { userId: randomUUID(), role: "customer" },
+      { vehicleId: f.vehicle.id, pickupBranchId: f.branchA.id, returnBranchId: f.branchA.id, ...bad, idempotencyKey: "qa-bad-dates-1" },
+    ).catch((e) => e);
+    expect(code(hold)).toBe("VALIDATION");
   });
 });

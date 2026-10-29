@@ -23,7 +23,6 @@ export function SiteFooter() {
           links={[
             { href: "/rentals", label: "My rentals" },
             { href: "/profile", label: "Profile & licence" },
-            { href: "/login", label: "Sign in" },
           ]}
         />
         <div className="space-y-3 text-sm">

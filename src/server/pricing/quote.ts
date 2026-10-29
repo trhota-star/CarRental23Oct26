@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getDb, type Executor } from "../db";
 import { branches, extras, pricingRules, vehicles } from "../db/schema";
 import { NotFoundError, PricingError, ValidationError } from "../errors";
-import { instant, parseInput } from "../validation";
+import { checkRange, instant, parseInput } from "../validation";
 import { computeQuote, PricingRuleError, type ExtraInput, type PricingRuleInput, type Quote } from "./engine";
 
 export const MAX_RENTAL_DAYS = 90;
@@ -24,11 +24,7 @@ export const quoteInputSchema = z
     returnAt: instant,
     extras: extraSelectionSchema,
   })
-  .refine((v) => v.returnAt.getTime() > v.pickupAt.getTime(), { message: "Return must be after pick-up", path: ["returnAt"] })
-  .refine((v) => v.returnAt.getTime() - v.pickupAt.getTime() <= MAX_RENTAL_DAYS * 86_400_000, {
-    message: `Rentals are limited to ${MAX_RENTAL_DAYS} days`,
-    path: ["returnAt"],
-  });
+  .superRefine(checkRange("pickupAt", "returnAt", MAX_RENTAL_DAYS * 86_400_000, { order: "Return must be after pick-up", tooLong: `Rentals are limited to ${MAX_RENTAL_DAYS} days` }));
 export type QuoteRequest = z.input<typeof quoteInputSchema>;
 
 export async function loadPricingRules(db: Executor = getDb()): Promise<PricingRuleInput[]> {

@@ -1,6 +1,11 @@
 // Local stand-in for a real payment provider. State lives in a JSON file so the
 // dev server, scripts and tests all see the same payments.
 //
+// Concurrency: every state change runs under a lock file (`<stateFile>.lock`, created
+// with O_EXCL) and re-reads the file inside the lock, then writes atomically
+// (temp file + rename). So several instances — the dev server, `pnpm job`, the seed,
+// parallel test workers — can share one state file without losing updates.
+//
 // Choose the outcome with the paymentMethod token:
 //   pm_fake_success  → payment succeeds / deposit is held (default)
 //   pm_fake_decline  → payment fails / deposit hold fails
@@ -8,7 +13,7 @@
 //   pm_fake_pending  → payment stays pending until cancelPayment()
 
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   PaymentError,
@@ -28,6 +33,24 @@ export const FAKE_PAYMENT_METHODS = {
 } as const;
 
 const SIGNATURE_TOLERANCE_SECONDS = 300;
+/** A lock older than this is assumed to belong to a crashed process. */
+const STALE_LOCK_MS = 10_000;
+const LOCK_TIMEOUT_MS = 30_000;
+const RETRYABLE_FS = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Retries Windows sharing violations (a reader/writer briefly holding the file). */
+async function retryFs<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt >= 20 || !RETRYABLE_FS.has((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      await sleep(5 + attempt * 5);
+    }
+  }
+}
 
 type StoredEvent = PaymentWebhookEvent & { deliveries: number };
 
@@ -240,16 +263,61 @@ export class FakePaymentProvider implements PaymentProvider {
 
   private async load(): Promise<Store> {
     try {
-      return JSON.parse(await readFile(this.options.stateFile, "utf8")) as Store;
+      return JSON.parse(await retryFs(() => readFile(this.options.stateFile, "utf8"))) as Store;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       return { payments: {}, holds: {}, idempotency: {}, events: [] };
     }
   }
 
+  /** Atomic replace: readers never see a half-written file. */
   private async save(store: Store): Promise<void> {
-    await mkdir(path.dirname(this.options.stateFile), { recursive: true });
-    await writeFile(this.options.stateFile, JSON.stringify(store, null, 2));
+    const file = this.options.stateFile;
+    await mkdir(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+    await writeFile(tmp, JSON.stringify(store, null, 2));
+    try {
+      await retryFs(() => rename(tmp, file));
+    } catch (error) {
+      await rm(tmp, { force: true });
+      throw error;
+    }
+  }
+
+  /** Cross-process mutual exclusion on the state file. */
+  private async withFileLock<T>(fn: () => Promise<T>): Promise<T> {
+    const lock = `${this.options.stateFile}.lock`;
+    await mkdir(path.dirname(lock), { recursive: true });
+    const deadline = Date.now() + LOCK_TIMEOUT_MS;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const handle = await open(lock, "wx");
+        await handle.writeFile(`${process.pid} ${new Date().toISOString()}`);
+        await handle.close();
+        break;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code ?? "";
+        if (code !== "EEXIST" && !RETRYABLE_FS.has(code)) throw error;
+        try {
+          if (Date.now() - (await stat(lock)).mtimeMs > STALE_LOCK_MS) {
+            // Steal a crashed holder's lock. rename is atomic: only one waiter wins.
+            const stale = `${lock}.stale.${randomUUID()}`;
+            await rename(lock, stale).catch(() => undefined);
+            await rm(stale, { force: true });
+            continue;
+          }
+        } catch {
+          // lock vanished between attempts — just retry
+        }
+        if (Date.now() > deadline) throw new PaymentError(`Timed out waiting for ${lock}`, "lock_timeout");
+        await sleep(Math.min(50, 2 + attempt) + Math.random() * 10);
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      await retryFs(() => rm(lock, { force: true }));
+    }
   }
 
   /** Serialises state changes, then delivers any webhooks they produced. */
@@ -259,7 +327,7 @@ export class FakePaymentProvider implements PaymentProvider {
       events: { type: PaymentWebhookEventType; data: Payment | DepositHold }[];
     }>,
   ): Promise<T> {
-    const run = this.queue.then(async () => {
+    const run = this.queue.then(() => this.withFileLock(async () => {
       const store = await this.load();
       const { result, events } = await change(store);
       const created: StoredEvent[] = events.map((e) => ({
@@ -272,7 +340,7 @@ export class FakePaymentProvider implements PaymentProvider {
       store.events.push(...created);
       await this.save(store);
       return { result: structuredClone(result), created };
-    });
+    }));
     this.queue = run.catch(() => undefined);
     return run.then(async ({ result, created }) => {
       const copies = this.options.duplicateWebhooks ? 2 : 1;

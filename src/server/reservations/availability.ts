@@ -9,7 +9,7 @@ import { branches, vehicleBookings, vehicleCategories, vehicles } from "../db/sc
 import { NotFoundError } from "../errors";
 import { computeQuote, PricingRuleError, type Quote } from "../pricing/engine";
 import { loadPricingRules, MAX_RENTAL_DAYS } from "../pricing/quote";
-import { instant, parseInput } from "../validation";
+import { checkRange, instant, parseInput } from "../validation";
 
 /** SQL tstzrange literal for [from, to). */
 export function rangeSql(from: Date, to: Date): SQL {
@@ -61,11 +61,7 @@ export const searchAvailabilitySchema = z
     maxDailyRateFils: z.number().int().nonnegative().optional(),
     sort: z.enum(["price_asc", "price_desc", "name"]).default("price_asc"),
   })
-  .refine((v) => v.returnAt.getTime() > v.pickupAt.getTime(), { message: "Return must be after pick-up", path: ["returnAt"] })
-  .refine((v) => v.returnAt.getTime() - v.pickupAt.getTime() <= MAX_RENTAL_DAYS * 86_400_000, {
-    message: `Rentals are limited to ${MAX_RENTAL_DAYS} days`,
-    path: ["returnAt"],
-  });
+  .superRefine(checkRange("pickupAt", "returnAt", MAX_RENTAL_DAYS * 86_400_000, { order: "Return must be after pick-up", tooLong: `Rentals are limited to ${MAX_RENTAL_DAYS} days` }));
 export type SearchAvailabilityInput = z.input<typeof searchAvailabilitySchema>;
 
 export type AvailableVehicle = VehicleDetails & {
@@ -138,8 +134,7 @@ export async function searchAvailability(input: SearchAvailabilityInput, opts: {
 
 const calendarSchema = z
   .object({ vehicleId: z.uuid(), from: instant, to: instant })
-  .refine((v) => v.to.getTime() > v.from.getTime(), { message: "`to` must be after `from`", path: ["to"] })
-  .refine((v) => v.to.getTime() - v.from.getTime() <= 366 * 86_400_000, { message: "Range too long", path: ["to"] });
+  .superRefine(checkRange("from", "to", 366 * 86_400_000, { order: "`to` must be after `from`", tooLong: "Range too long" }));
 
 export type BusyInterval = { start: string; end: string; kind: "RESERVED" | "MAINTENANCE" };
 

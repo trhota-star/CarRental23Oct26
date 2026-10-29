@@ -3,7 +3,7 @@
 Owner: Database Engine agent. This page lists every typed server function the
 App and QA agents may call. **App code never writes raw SQL for business rules.**
 
-Status: ✅ ready · 🚧 planned (signature fixed; implementation landing soon)
+Status: every function listed here is ✅ implemented and covered by `src/server/**/*.test.ts`.
 
 ## Conventions
 
@@ -178,7 +178,7 @@ confirmReservation(reservationId: string, opts?): Promise<ReservationView>   // 
 handlePaymentWebhook(rawBody: string, signature: string | null, opts?): Promise<{ status: "processed"|"duplicate"|"ignored"; eventId; type }>
 ```
 
-### Reading reservations 🚧
+### Reading reservations ✅
 ```ts
 getReservationForUser(actor, reservationId): Promise<ReservationView>           // owner or admin, else NotFound
 getReservationByReference(actor, reference): Promise<ReservationView>           // voucher lookup, owner or admin
@@ -188,10 +188,12 @@ listReservationsForUser(actor, f?: { statuses?: ReservationStatus[]; limit?; off
 pickupAt, returnAt, holdExpiresAt, pricing{… all fils, quote}, extras[], payments[], paidFils, deposit|null,
 agreement|null, confirmedAt, cancelledAt, cancellationReason, createdAt }`.
 
-### Cancel / modify (DB-8) 🚧
+### Cancel / modify (DB-8) ✅
 ```ts
 previewCancellation(actor, reservationId, opts?): Promise<{ cancellable: boolean; reason?: string; refundFils: number; feeFils: number; policy: string }>
-cancelReservation(actor, { reservationId; reason?: string }, opts?): Promise<ReservationView>
+cancelReservation(actor, { reservationId; reason?: string }, opts?): Promise<ReservationView>   // idempotent
+refundReservation(admin, reservationId, opts?): Promise<ReservationView>   // CANCELLED → REFUNDED, refunds what is still paid
+computeCancellation({...}): CancellationPreview                              // pure policy function
 previewModification(actor, { reservationId; pickupAt; returnAt }, opts?): Promise<{ available: boolean; quote: Quote; differenceFils: number }>
 modifyReservationDates(actor, { reservationId; pickupAt; returnAt; paymentMethod?: string; idempotencyKey: string }, opts?): Promise<ReservationView>
 ```
@@ -204,7 +206,7 @@ Policy:
   If the price goes up, the difference is charged (`paymentMethod` is required). If it goes down,
   the difference is refunded. `VehicleUnavailableError` if the new dates clash.
 
-### Check-out / check-in / damage (DB-9) 🚧 (admin only)
+### Check-out / check-in / damage (DB-9) ✅ (admin only)
 ```ts
 checkOutReservation(actor, { reservationId; mileageKm; fuelLevel /*0-100*/; notes? }, opts?): Promise<ReservationView>
 checkInReservation(actor, {
@@ -217,27 +219,32 @@ updateDamageReport(actor, { id; status?: "OPEN"|"CHARGED"|"RESOLVED"; repairCost
 listDamageReports(actor, f?: { vehicleId?; reservationId?; status? }): Promise<DamageReport[]>
 ```
 
-### Expired holds (DB-10) 🚧
+### Expired holds (DB-10) ✅
 ```ts
-releaseExpiredHolds({ now?, db?, provider?, batchSize? }): Promise<{ expired; depositsReleased; paymentsRefunded; failed }>
+releaseExpiredReservationHolds({ now?, db?, provider?, batchSize? }): Promise<{ expired; depositsReleased; paymentsRefunded; paymentsVoided; failed }>
+// 1. PENDING + hold_expires_at <= now → EXPIRED (FOR UPDATE SKIP LOCKED, batches)
+// 2. HELD deposits on EXPIRED/CANCELLED/REFUNDED reservations → released (row lock SKIP LOCKED, one tx per row)
+// 3. payments on EXPIRED reservations: SUCCEEDED → refunded in full, PENDING → voided
+// Idempotent; parallel runs never process the same row.
 ```
 Routes:
 - `POST /api/cron/release-expired-holds` and `GET /api/cron/release-expired-holds`. Both need
   `Authorization: Bearer ${CRON_SECRET}`.
 - `pnpm job release-expired-holds`.
 
-## `@/server/customers` 🚧
+## `@/server/customers` ✅
 ```ts
 getDriverProfile(actor, userId?): Promise<DriverProfile | null>         // own, or any (admin)
 upsertDriverProfile(actor, { fullName; phone; dateOfBirth "YYYY-MM-DD"; nationality; licenceNumber; licenceCountry; licenceExpiry "YYYY-MM-DD" }): Promise<DriverProfile>
 saveLicenceFile(actor, { body: Uint8Array; contentType: "image/jpeg"|"image/png"|"image/webp"|"application/pdf" }): Promise<DriverProfile>  // ≤ 5 MB
+uploadDamagePhoto(admin, { body; contentType }): Promise<{ key; contentType }>   // pass key in damage photoKeys
 getFileOwnership(key: string): Promise<{ ownerUserId: string | null; kind: "licence"|"damage" } | null>
 authorizeFileAccess(actor, key: string): Promise<{ contentType: string } | null>   // null → respond 404
 ```
 File keys are private storage keys, such as `licences/<userId>/<uuid>.png` and `damage/<reportId>/<uuid>.jpg`.
 They are never public URLs. Stream them with `getFileStorage().get(key)` after `authorizeFileAccess`.
 
-## `@/server/admin` 🚧 (admin only; each write is audit-logged)
+## `@/server/admin` ✅ (admin only; each write is audit-logged)
 ```ts
 listAllReservations(actor, { statuses?; branchId?; vehicleId?; from?; to?; search?; limit?; offset? }): Promise<{ items: ReservationView[]; total }>
 createBranch / updateBranch(actor, input): Promise<Branch>
@@ -255,6 +262,39 @@ listAuditLogs(actor, { entityType?; entityId?; limit? }): Promise<AuditLog[]>
 
 ## HTTP routes (owned by DB)
 - `POST /api/webhooks/payments`: reads the raw body and verifies it with `getPaymentProvider().verifyWebhook`.
-  Responses: 400 for a bad signature, 200 `{status}` otherwise (including duplicates). 🚧
+  Responses: 400 for a bad signature, 500 on an internal error (the provider retries; dedup makes that safe),
+  and 200 `{status: processed|duplicate|ignored}` otherwise. ✅
 - `POST|GET /api/cron/release-expired-holds`: Bearer `CRON_SECRET`. Returns 401 without it and 200 with the
-  result JSON. 🚧
+  result JSON. ✅
+
+## Cloud adapters (DB-11): written and unit-tested with mocks, not connected
+
+The adapters are chosen only through settings. App code always calls `getPaymentProvider()` / `getFileStorage()`.
+
+| Setting | Values | Extra env |
+|---|---|---|
+| `PAYMENT_PROVIDER` | `fake` (default) or `stripe` | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
+| `STORAGE_PROVIDER` | `local` (default) or `vercel-blob` | `BLOB_READ_WRITE_TOKEN`, optional `BLOB_PREFIX` |
+
+**`StripePaymentProvider`** (`src/server/payments/stripe.ts`)
+- Rental charges are PaymentIntents confirmed server-side with `payment_method`.
+- Deposits are PaymentIntents with `capture_method: "manual"`. They are released by cancelling the intent
+  and captured with `amount_to_capture`, so partial capture works.
+- `idempotencyKey` is passed as Stripe's `Idempotency-Key`. Refunds go through `refunds.create`.
+- Webhooks are verified with `stripe.webhooks.constructEvent` on the raw body. They map to neutral events:
+  - `payment_intent.succeeded` → `payment.succeeded` (deposit: `deposit.captured`)
+  - `payment_intent.payment_failed` → `payment.failed` (deposit: `deposit.failed`)
+  - `payment_intent.canceled` → `payment.canceled` (deposit: `deposit.released`)
+  - `payment_intent.amount_capturable_updated` → `deposit.held`
+  - `charge.refunded` → `payment.refunded`
+- Other event types throw `PaymentError(IGNORED_WEBHOOK_EVENT)`, and the route answers 200 `{status:"ignored"}`.
+- Card payments that need 3-D Secure (`requires_action`) map to `pending`. The App would need a client-side
+  confirmation step for those. This is not built yet and belongs to Phase B.
+
+**`VercelBlobStorage`** (`src/server/storage/vercel-blob.ts`)
+- Every `put` uses `access: "private"` and `addRandomSuffix: false`. There is no public URL.
+- Reads use `get(..., { access: "private" })` and stream only through the authorised file route.
+
+**Vercel Cron** (the lead owns `vercel.json`). Suggested entry:
+`{ "crons": [{ "path": "/api/cron/release-expired-holds", "schedule": "*/5 * * * *" }] }`.
+Vercel sends `Authorization: Bearer $CRON_SECRET` automatically when `CRON_SECRET` is set.

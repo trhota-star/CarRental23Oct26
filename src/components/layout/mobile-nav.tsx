@@ -1,25 +1,17 @@
 "use client";
 
 import { Menu, X } from "lucide-react";
-import { usePathname } from "next/navigation";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 /**
  * Hamburger menu for small screens. The panel content is server-rendered and
- * passed in, so account links still come from the real session.
+ * passed in, so account links still come from the real session. It closes when
+ * a link or button inside it is activated, or on Escape.
  */
 export function MobileNav({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const [lastPath, setLastPath] = useState<string | null>(null);
-  const pathname = usePathname();
   const panelId = useId();
   const buttonRef = useRef<HTMLButtonElement>(null);
-
-  // Close after navigating (compare during render instead of an effect).
-  if (pathname !== lastPath) {
-    setLastPath(pathname);
-    if (open) setOpen(false);
-  }
 
   useEffect(() => {
     if (!open) return;
@@ -32,6 +24,10 @@ export function MobileNav({ children }: { children: ReactNode }) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
+
+  const onPanelClick = (e: MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("a,button")) setOpen(false);
+  };
 
   return (
     <div className="md:hidden">
@@ -49,6 +45,7 @@ export function MobileNav({ children }: { children: ReactNode }) {
       <div
         id={panelId}
         hidden={!open}
+        onClick={onPanelClick}
         className="absolute inset-x-0 top-full border-b border-ink-100 bg-white px-4 pt-2 pb-6 shadow-lift"
       >
         {children}
